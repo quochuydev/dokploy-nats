@@ -8,7 +8,7 @@ NATS server with JetStream, token auth, WebSocket, and HTTP monitoring as a sing
 flowchart LR
     apps[Apps / Clients]
     web[Browser / WS clients]
-    user([User])
+    admin([Operator])
 
     subgraph nats[NATS]
         srv[nats-server]
@@ -17,8 +17,8 @@ flowchart LR
     end
 
     apps -->|TCP 4222| srv
-    web -->|WSS via Traefik| srv
-    srv -->|HTTP 8222| user
+    web -->|WSS via Traefik :8080| srv
+    admin -->|HTTP :8222 monitoring| srv
 ```
 
 ## Setup in Dokploy

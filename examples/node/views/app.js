@@ -2,89 +2,131 @@ import { connect, JSONCodec } from "https://esm.sh/nats.ws@1.29.2";
 
 const $ = (id) => document.getElementById(id);
 const jc = JSONCodec();
+const scores = new Map();
+const seenEvents = new Set();
+const pendingClicks = new Map();
 let nc = null;
-const rowsById = new Map();
 
-const idsParam = new URLSearchParams(location.search).get("ids");
-const watchIds = idsParam
-  ? idsParam.split(",").map((s) => s.trim()).filter(Boolean)
-  : null;
-const subjects = watchIds ? watchIds.map((id) => `executions.${id}.>`) : ["executions.>"];
-const submitPrefix = watchIds?.[0] ?? "default";
+const apiUrl = `${location.origin}/api`;
+const natsUrl = `ws://${location.hostname}:8080`;
+
+const adjectives = ["swift","brave","calm","bold","keen","lucky","witty","silent","bright","sly","fierce","mighty","jolly","quick","sharp"];
+const animals = ["fox","tiger","otter","wolf","panda","hawk","koala","lynx","raven","eagle","bear","cobra","whale","crane","yak"];
+const randomName = () =>
+  `${adjectives[Math.floor(Math.random() * adjectives.length)]}-${animals[Math.floor(Math.random() * animals.length)]}-${Math.floor(Math.random() * 1000)}`;
+
+const seedNames = () => {
+  const names = new Set();
+  while (names.size < 10) names.add(randomName());
+  let order = 0;
+  for (const name of names) {
+    scores.set(name, { score: 0, firstAt: order++, bumped: false });
+  }
+};
 
 const setStatus = (text, cls = "") => {
-  const el = $("status");
-  el.textContent = text;
-  el.className = cls;
+  $("statusText").textContent = text;
+  $("status").className = `status ${cls}`;
 };
 
-const upsertRow = (e) => {
-  let tr = rowsById.get(e.executionId);
-  if (!tr) {
-    tr = document.createElement("tr");
-    rowsById.set(e.executionId, tr);
-    $("rows").prepend(tr);
+const escapeHtml = (s) =>
+  s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+const render = () => {
+  const top = [...scores.entries()]
+    .sort((a, b) => b[1].score - a[1].score || a[1].firstAt - b[1].firstAt)
+    .slice(0, 10);
+
+  const tbody = $("rows");
+  const medal = ["gold", "silver", "bronze"];
+  const live = nc !== null;
+
+  tbody.innerHTML = top
+    .map(([user, { score, bumped }], i) => `
+      <tr class="${medal[i] ?? ""} ${bumped ? "bump" : ""}">
+        <td class="rank">${i + 1}</td>
+        <td class="user">${escapeHtml(user)}</td>
+        <td class="score">${score}</td>
+        <td class="action"><button data-user="${escapeHtml(user)}"${live ? "" : " disabled"}>+1</button></td>
+      </tr>
+    `)
+    .join("");
+};
+
+const bumpUser = (user) => {
+  const entry = scores.get(user) ?? { score: 0, firstAt: Date.now(), bumped: false };
+  entry.score += 1;
+  entry.bumped = true;
+  scores.set(user, entry);
+  render();
+  setTimeout(() => {
+    const e = scores.get(user);
+    if (e) { e.bumped = false; render(); }
+  }, 1);
+};
+
+const onScore = async (user) => {
+  if (!nc) return;
+  bumpUser(user);
+  pendingClicks.set(user, (pendingClicks.get(user) ?? 0) + 1);
+
+  try {
+    const res = await fetch(apiUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "score", prefix: user }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (!data.executionId) throw new Error(data.error ?? "submit failed");
+  } catch (err) {
+    setStatus(`submit failed: ${err.message}`, "err");
   }
-  tr.className = e.status;
-  tr.innerHTML = `
-    <td>${new Date(e.at).toLocaleTimeString()}</td>
-    <td>${e.prefix ?? ""}</td>
-    <td>${e.executionId}</td>
-    <td>${e.seq}</td>
-    <td class="status">${e.status}</td>
-    <td>${e.message ?? ""}</td>
-  `;
 };
 
-const consume = async (subject) => {
-  const sub = nc.subscribe(subject);
+const handleEvent = (e) => {
+  if (seenEvents.has(e.executionId)) return;
+  seenEvents.add(e.executionId);
+
+  const user = e.prefix;
+  if (!user || user === "default") return;
+
+  const pending = pendingClicks.get(user) ?? 0;
+  if (pending > 0) {
+    pendingClicks.set(user, pending - 1);
+    return;
+  }
+  bumpUser(user);
+};
+
+const consume = async () => {
+  const sub = nc.subscribe("executions.>");
   for await (const m of sub) {
-    try { upsertRow(jc.decode(m.data)); } catch (err) { console.error(err); }
+    try { handleEvent(jc.decode(m.data)); } catch (err) { console.error(err); }
   }
 };
 
 const doConnect = async () => {
-  const servers = $("url").value.trim();
-  const token = $("token").value.trim() || undefined;
   try {
-    nc = await connect({ servers, token });
-    const mode = watchIds ? `ids=${watchIds.join(",")}` : "all";
-    setStatus(`connected to ${nc.getServer()} (${mode})`, "ok");
-    $("submit").disabled = false;
-    subjects.forEach(consume);
+    nc = await connect({ servers: natsUrl });
+    setStatus("live", "ok");
+    render();
+    consume();
     nc.closed().then((err) => {
-      setStatus(`disconnected${err ? ": " + err.message : ""}`, err ? "err" : "");
-      $("submit").disabled = true;
+      setStatus(`disconnected${err ? ": " + err.message : ""}`, "err");
       nc = null;
-      rowsById.clear();
+      render();
     });
   } catch (err) {
-    setStatus(`connect failed: ${err.message}`, "err");
+    setStatus(`offline: ${err.message}`, "err");
   }
 };
 
-$("connect").onclick = doConnect;
+$("rows").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-user]");
+  if (btn && !btn.disabled) onScore(btn.dataset.user);
+});
 
-$("submit").onclick = async () => {
-  if (!nc) return;
-  let payload;
-  try { payload = JSON.parse($("payload").value || "{}"); }
-  catch { setStatus("payload is not valid JSON", "err"); return; }
-
-  const body = { name: $("name").value.trim(), payload, prefix: submitPrefix };
-  try {
-    const res = await fetch($("api").value.trim(), {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const { executionId, error, detail } = await res.json();
-    if (!executionId) throw new Error(error ? `${error}: ${detail ?? ""}` : "no executionId");
-    setStatus(`accepted ${executionId}`, "ok");
-  } catch (err) {
-    setStatus(`request failed: ${err.message}`, "err");
-  }
-};
-
+seedNames();
+render();
 doConnect();

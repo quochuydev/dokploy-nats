@@ -8,5 +8,5 @@
     "esModuleInterop": true,
     "skipLibCheck": true
   },
-  "include": ["main.ts", "worker.ts"]
+  "include": ["main.ts", "worker.ts", "atoms/**/*.ts", "types.ts"]
 }

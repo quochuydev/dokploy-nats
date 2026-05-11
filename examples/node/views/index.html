@@ -2,86 +2,109 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>NATS jobs — request + live table</title>
+    <title>Live Scoreboard — Top 10</title>
     <style>
-      body { font: 14px/1.4 system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
-      h1 { margin-bottom: 0.25rem; }
-      .muted { color: #666; }
-      label { display: block; margin: 0.5rem 0 0.25rem; font-weight: 600; }
-      input, button, select { font: inherit; padding: 0.4rem 0.6rem; }
-      input { width: 100%; box-sizing: border-box; }
-      .row { display: flex; gap: 0.5rem; margin-top: 0.5rem; align-items: end; }
-      .row > * { flex: 1; }
-      .row button { flex: 0 0 auto; }
-      fieldset { border: 1px solid #ddd; border-radius: 6px; padding: 0.75rem 1rem 1rem; margin: 1rem 0; }
-      legend { padding: 0 0.5rem; font-weight: 600; }
-      table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
-      th, td { text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid #eee; font-family: ui-monospace, monospace; font-size: 12.5px; }
-      th { background: #f7f7f7; }
-      tr.queued td.status    { color: #888; }
-      tr.running td.status   { color: #08c; }
-      tr.succeeded td.status { color: #2a7; }
-      tr.failed td.status    { color: #c33; }
-      #status { font-family: ui-monospace, monospace; font-size: 12px; padding: 0.4rem 0.6rem; border-radius: 4px; background: #f3f3f3; display: inline-block; }
-      #status.ok { background: #e6f7ec; color: #1a6b3a; }
-      #status.err { background: #fde8e8; color: #8a1f1f; }
+      :root {
+        --bg: #f6f7fb;
+        --panel: #ffffff;
+        --panel-2: #f1f3f8;
+        --border: #e3e6ee;
+        --text: #1c2230;
+        --muted: #6b7385;
+        --accent: #3a6df0;
+        --ok: #15a34a;
+        --err: #d6354c;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font: 14px/1.5 system-ui, -apple-system, sans-serif;
+        color: var(--text);
+        background: radial-gradient(1200px 600px at 50% -200px, #dde5ff 0%, var(--bg) 60%);
+        min-height: 100vh;
+      }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+      header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 1.25rem; }
+      h1 { margin: 0; font-size: 1.75rem; letter-spacing: -0.02em; }
+      .sub { color: var(--muted); font-size: 13px; }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 0;
+        padding: 1rem 1.25rem;
+        margin-bottom: 1rem;
+      }
+      .row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+      .row > input { flex: 1 1 200px; min-width: 0; }
+      input, button {
+        font: inherit;
+        color: var(--text);
+        background: var(--panel-2);
+        border: 1px solid var(--border);
+        border-radius: 0;
+        padding: 0.55rem 0.75rem;
+      }
+      input:focus { outline: none; border-color: var(--accent); }
+      button {
+        cursor: pointer;
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+        font-weight: 600;
+      }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
+      button:hover:not(:disabled) { filter: brightness(1.08); }
+
+      .status { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 12px; color: var(--muted); }
+      .dot { width: 8px; height: 8px; background: var(--muted); }
+      .status.ok .dot { background: var(--ok); box-shadow: 0 0 0 4px rgba(46, 204, 113, 0.15); }
+      .status.err .dot { background: var(--err); box-shadow: 0 0 0 4px rgba(255, 92, 92, 0.15); }
+
+      table { width: 100%; border-collapse: collapse; }
+      th, td { padding: 0.65rem 0.5rem; text-align: left; border-bottom: 1px solid var(--border); }
+      th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+      tbody tr.bump { background: rgba(91, 140, 255, 0.12); }
+      td.rank { width: 3rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+      td.user { font-weight: 600; }
+      td.score { width: 5rem; text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; color: var(--accent); }
+      td.action { width: 5rem; text-align: right; }
+      td.action button {
+        padding: 0.35rem 0.7rem;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      tr.gold td.rank { color: #d4a017; }
+      tr.silver td.rank { color: #8a93a6; }
+      tr.bronze td.rank { color: #b06a25; }
+      .empty { color: var(--muted); text-align: center; padding: 1.5rem 0; }
     </style>
   </head>
   <body>
-    <h1>NATS jobs</h1>
-    <p class="muted">POSTs to the Fastify <code>/api</code> route to get <code>{ executionId }</code>. Worker publishes events on <code>executions.&lt;prefix&gt;.&lt;uuid&gt;.event</code>. Default URL subscribes to <code>executions.&gt;</code> (all prefixes) and submits under <code>default</code>. Use <code>?ids=a,b</code> to subscribe to those prefixes only; submissions go under the first one.</p>
+    <div class="wrap">
+      <header>
+        <div>
+          <h1>Live Scoreboard</h1>
+          <div class="sub">Top 10 users — updates in real time</div>
+        </div>
+        <span id="status" class="status"><span class="dot"></span><span id="statusText">connecting…</span></span>
+      </header>
 
-    <fieldset>
-      <legend>Connection</legend>
-      <div class="row">
-        <div>
-          <label>API URL</label>
-          <input id="api" value="http://localhost:4000/api" />
-        </div>
-        <div>
-          <label>NATS WS URL</label>
-          <input id="url" value="ws://localhost:8080" />
-        </div>
-        <div>
-          <label>Auth token</label>
-          <input id="token" placeholder="optional" />
-        </div>
-        <button id="connect">Reconnect</button>
+      <div class="panel">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:3rem">#</th>
+              <th>User</th>
+              <th style="width:5rem; text-align:right">Score</th>
+              <th style="width:5rem"></th>
+            </tr>
+          </thead>
+          <tbody id="rows">
+            <tr><td colspan="4" class="empty">Loading…</td></tr>
+          </tbody>
+        </table>
       </div>
-      <p style="margin-top:0.75rem"><span id="status">connecting…</span></p>
-    </fieldset>
-
-    <fieldset>
-      <legend>Submit job</legend>
-      <div class="row">
-        <div>
-          <label>Job name</label>
-          <input id="name" value="match-live" />
-        </div>
-        <div>
-          <label>Payload (JSON)</label>
-          <input id="payload" value='{"score":"1-0"}' />
-        </div>
-        <button id="submit" disabled>Submit</button>
-      </div>
-    </fieldset>
-
-    <fieldset>
-      <legend>Executions</legend>
-      <table>
-        <thead>
-          <tr>
-            <th style="width:11ch">Time</th>
-            <th style="width:10ch">Prefix</th>
-            <th>Execution ID</th>
-            <th style="width:5ch">Seq</th>
-            <th style="width:10ch">Status</th>
-            <th>Message</th>
-          </tr>
-        </thead>
-        <tbody id="rows"></tbody>
-      </table>
-    </fieldset>
+    </div>
 
     <script type="module" src="/app.js"></script>
   </body>

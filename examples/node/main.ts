@@ -3,16 +3,15 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
-import { connect, JSONCodec } from "nats";
+import { createNatsClient } from "./atoms/nats";
+import type { JobRequest, JobResponse } from "./types";
 
 const natsUrl = process.env.NATS_URL ?? "nats://localhost:4222";
 const natsToken = process.env.NATS_AUTH_TOKEN;
 const port = Number(process.env.PORT ?? 4000);
 
-const nc = await connect({ servers: natsUrl, token: natsToken });
-console.log(`fastify connected to NATS at ${nc.getServer()}`);
-
-const jc = JSONCodec<Record<string, unknown>>();
+const nats = await createNatsClient({ url: natsUrl, token: natsToken });
+console.log(`fastify connected to NATS at ${nats.getServer()}`);
 
 const app = Fastify({ logger: true });
 await app.register(cors, { origin: true });
@@ -32,12 +31,11 @@ app.get("/app.js", async (_req, reply) => {
 });
 
 app.post("/api", async (req, reply) => {
-  const body = (req.body ?? {}) as Record<string, unknown>;
+  const body = (req.body ?? {}) as JobRequest;
   try {
-    const res = await nc.request("jobs.create", jc.encode(body), {
+    return await nats.request<JobResponse, JobRequest>("jobs.create", body, {
       timeout: 3000,
     });
-    return jc.decode(res.data);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     reply.code(502);
@@ -45,13 +43,13 @@ app.post("/api", async (req, reply) => {
   }
 });
 
-app.get("/healthz", async () => ({ ok: true, nats: nc.getServer() }));
+app.get("/healthz", async () => ({ ok: true, nats: nats.getServer() }));
 
 await app.listen({ host: "0.0.0.0", port });
 
 const shutdown = async () => {
   await app.close();
-  await nc.drain();
+  await nats.drain();
   process.exit(0);
 };
 process.on("SIGINT", shutdown);

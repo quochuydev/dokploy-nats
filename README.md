@@ -41,7 +41,6 @@ flowchart LR
    | ---------------------------- | ---- | ------- | -------------- |
    | `nats-monitor.<your-domain>` | `/`  | `nats`  | `8222`         |
    | `nats-ws.<your-domain>`      | `/`  | `nats`  | `8080`         |
-
    - `nats-monitor` exposes `/healthz`, `/varz`, `/connz`, `/jsz`, etc.
    - `nats-ws` is the WebSocket endpoint (`wss://nats-ws.<your-domain>`).
 
@@ -106,3 +105,9 @@ All NATS settings are read from `nats.conf` and env vars. To add features:
 - **KV / Object store** — managed via `nats` CLI after deploy (`nats kv add`, `nats object add`)
 
 Edit `nats.conf` (env vars referenced as `$VAR`) or `docker-compose.yml`, push, redeploy.
+
+## References
+
+- [Node example](./examples/node) — Fastify UI + worker, request/reply, WebSocket live events, prefix-scoped subscriptions
+
+![Node example screenshot](./docs/example-node.png)

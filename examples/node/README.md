@@ -1,5 +1,7 @@
 # NATS Node
 
+![Node example screenshot](../../docs/example-node.png)
+
 ## Architecture
 
 ```mermaid

@@ -11,7 +11,8 @@ The goal is that anyone reading the examples can see, end-to-end, every feature 
 - [x] Token auth — `connect({ token })`
 - [x] Pub/sub on subject
 - [x] JetStream — create stream, publish, ack
-- [ ] WebSocket connection (`wss://...`)
+- [x] WebSocket connection (`ws://` locally, `wss://` in Dokploy) — see `examples/node/view/index.html`
+- [x] Request/reply with streamed events (`jobs.create` → `{ executionId }`, then `executions.<id>.>`) — see `examples/node/worker.ts` + `examples/node/view/jobs.html`
 - [ ] Add an entry here whenever a new feature lands in config (TLS / mTLS, NKey / JWT, accounts, KV, Object store, leaf nodes, cluster, …)
 
 ### When adding a sample

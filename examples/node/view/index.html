@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>NATS WebSocket demo</title>
+    <style>
+      body { font: 14px/1.4 system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
+      label { display: block; margin: 0.5rem 0 0.25rem; font-weight: 600; }
+      input, button { font: inherit; padding: 0.4rem 0.6rem; }
+      input { width: 100%; box-sizing: border-box; }
+      .row { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
+      .row input { flex: 1; }
+      #status { display: inline-block; margin-top: 0.75rem; font-family: ui-monospace, monospace; font-size: 12px; padding: 0.4rem 0.6rem; border-radius: 4px; background: #f3f3f3; }
+      #status.ok  { background: #e6f7ec; color: #1a6b3a; }
+      #status.err { background: #fde8e8; color: #8a1f1f; }
+      table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+      th, td { text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid #eee; font-family: ui-monospace, monospace; font-size: 12.5px; }
+      th { background: #f7f7f7; }
+      tr.pub td.dir { color: #c87a00; font-weight: 600; }
+      tr.sub td.dir { color: #1769aa; font-weight: 600; }
+      td.payload { white-space: pre-wrap; word-break: break-word; }
+    </style>
+  </head>
+  <body>
+    <h1>NATS WebSocket demo</h1>
+
+    <label>NATS WS URL</label>
+    <input id="url" value="ws://localhost:8080" />
+
+    <label>Auth token (optional)</label>
+    <input id="token" placeholder="leave blank if no auth" />
+
+    <div class="row">
+      <button id="connect">Connect</button>
+      <button id="disconnect" disabled>Disconnect</button>
+    </div>
+    <div><span id="status">disconnected</span></div>
+
+    <label>Subject</label>
+    <div class="row">
+      <input id="subject" value="demo.hello" />
+      <input id="payload" value="hello from browser" />
+      <button id="publish" disabled>Publish</button>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th style="width:11ch">Time</th>
+          <th style="width:6ch">Dir</th>
+          <th style="width:24ch">Subject</th>
+          <th>Payload</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+
+    <script type="module">
+      import { connect, StringCodec } from "https://esm.sh/nats.ws@1.29.2";
+
+      const $ = (id) => document.getElementById(id);
+      const sc = StringCodec();
+      let nc = null;
+
+      const setStatus = (text, cls = "") => {
+        const el = $("status");
+        el.textContent = text;
+        el.className = cls;
+      };
+
+      const addRow = (dir, subject, payload) => {
+        const tr = document.createElement("tr");
+        tr.className = dir;
+        const td = (text, cls = "") => {
+          const c = document.createElement("td");
+          if (cls) c.className = cls;
+          c.textContent = text;
+          return c;
+        };
+        tr.appendChild(td(new Date().toLocaleTimeString()));
+        tr.appendChild(td(dir, "dir"));
+        tr.appendChild(td(subject));
+        tr.appendChild(td(payload, "payload"));
+        $("rows").prepend(tr);
+      };
+
+      $("connect").onclick = async () => {
+        const servers = $("url").value.trim();
+        const token = $("token").value.trim() || undefined;
+        try {
+          nc = await connect({ servers, token });
+          setStatus(`connected to ${nc.getServer()}`, "ok");
+          $("connect").disabled = true;
+          $("disconnect").disabled = false;
+          $("publish").disabled = false;
+
+          const sub = nc.subscribe("demo.>");
+          (async () => {
+            for await (const m of sub) {
+              addRow("sub", m.subject, sc.decode(m.data));
+            }
+          })();
+
+          nc.closed().then((err) => {
+            setStatus(`disconnected${err ? ": " + err.message : ""}`, err ? "err" : "");
+            $("connect").disabled = false;
+            $("disconnect").disabled = true;
+            $("publish").disabled = true;
+            nc = null;
+          });
+        } catch (err) {
+          setStatus(`connect failed: ${err.message}`, "err");
+        }
+      };
+
+      $("disconnect").onclick = async () => {
+        if (nc) await nc.drain();
+      };
+
+      $("publish").onclick = () => {
+        if (!nc) return;
+        const subject = $("subject").value.trim();
+        const payload = $("payload").value;
+        nc.publish(subject, sc.encode(payload));
+        addRow("pub", subject, payload);
+      };
+    </script>
+  </body>
+</html>

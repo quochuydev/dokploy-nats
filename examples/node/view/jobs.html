@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>NATS jobs — request + live table</title>
+    <style>
+      body { font: 14px/1.4 system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
+      h1 { margin-bottom: 0.25rem; }
+      .muted { color: #666; }
+      label { display: block; margin: 0.5rem 0 0.25rem; font-weight: 600; }
+      input, button, select { font: inherit; padding: 0.4rem 0.6rem; }
+      input { width: 100%; box-sizing: border-box; }
+      .row { display: flex; gap: 0.5rem; margin-top: 0.5rem; align-items: end; }
+      .row > * { flex: 1; }
+      .row button { flex: 0 0 auto; }
+      fieldset { border: 1px solid #ddd; border-radius: 6px; padding: 0.75rem 1rem 1rem; margin: 1rem 0; }
+      legend { padding: 0 0.5rem; font-weight: 600; }
+      table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+      th, td { text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid #eee; font-family: ui-monospace, monospace; font-size: 12.5px; }
+      th { background: #f7f7f7; }
+      tr.queued td.status    { color: #888; }
+      tr.running td.status   { color: #08c; }
+      tr.succeeded td.status { color: #2a7; }
+      tr.failed td.status    { color: #c33; }
+      #status { font-family: ui-monospace, monospace; font-size: 12px; padding: 0.4rem 0.6rem; border-radius: 4px; background: #f3f3f3; display: inline-block; }
+      #status.ok { background: #e6f7ec; color: #1a6b3a; }
+      #status.err { background: #fde8e8; color: #8a1f1f; }
+    </style>
+  </head>
+  <body>
+    <h1>NATS jobs</h1>
+    <p class="muted">Submits a request on <code>jobs.create</code>, receives <code>{ executionId }</code>, then subscribes to <code>executions.&lt;id&gt;.&gt;</code>.</p>
+
+    <fieldset>
+      <legend>Connection</legend>
+      <div class="row">
+        <div>
+          <label>NATS WS URL</label>
+          <input id="url" value="ws://localhost:8080" />
+        </div>
+        <div>
+          <label>Auth token</label>
+          <input id="token" placeholder="optional" />
+        </div>
+        <button id="connect">Connect</button>
+      </div>
+      <p style="margin-top:0.75rem"><span id="status">disconnected</span></p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Submit job</legend>
+      <div class="row">
+        <div>
+          <label>Job name</label>
+          <input id="name" value="resize-image" />
+        </div>
+        <div>
+          <label>Payload (JSON)</label>
+          <input id="payload" value='{"size":"1024x"}' />
+        </div>
+        <button id="submit" disabled>Submit</button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Executions</legend>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:11ch">Time</th>
+            <th>Execution ID</th>
+            <th style="width:5ch">Seq</th>
+            <th style="width:10ch">Status</th>
+            <th>Message</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </fieldset>
+
+    <script type="module">
+      import { connect, JSONCodec } from "https://esm.sh/nats.ws@1.29.2";
+
+      const $ = (id) => document.getElementById(id);
+      const jc = JSONCodec();
+      let nc = null;
+      const subscribed = new Set();
+
+      const setStatus = (text, cls = "") => {
+        const el = $("status");
+        el.textContent = text;
+        el.className = cls;
+      };
+
+      const addRow = (e) => {
+        const tr = document.createElement("tr");
+        tr.className = e.status;
+        tr.innerHTML = `
+          <td>${new Date(e.at).toLocaleTimeString()}</td>
+          <td title="${e.executionId}">${e.executionId.slice(0, 8)}…</td>
+          <td>${e.seq}</td>
+          <td class="status">${e.status}</td>
+          <td>${e.message ?? ""}</td>
+        `;
+        $("rows").prepend(tr);
+      };
+
+      const watchExecution = async (executionId) => {
+        if (subscribed.has(executionId)) return;
+        subscribed.add(executionId);
+        const sub = nc.subscribe(`executions.${executionId}.>`);
+        for await (const m of sub) {
+          try { addRow(jc.decode(m.data)); } catch (err) { console.error(err); }
+        }
+      };
+
+      $("connect").onclick = async () => {
+        const servers = $("url").value.trim();
+        const token = $("token").value.trim() || undefined;
+        try {
+          nc = await connect({ servers, token });
+          setStatus(`connected to ${nc.getServer()}`, "ok");
+          $("submit").disabled = false;
+          nc.closed().then((err) => {
+            setStatus(`disconnected${err ? ": " + err.message : ""}`, err ? "err" : "");
+            $("submit").disabled = true;
+            nc = null;
+            subscribed.clear();
+          });
+        } catch (err) {
+          setStatus(`connect failed: ${err.message}`, "err");
+        }
+      };
+
+      $("submit").onclick = async () => {
+        if (!nc) return;
+        let payload;
+        try { payload = JSON.parse($("payload").value || "{}"); }
+        catch { setStatus("payload is not valid JSON", "err"); return; }
+
+        const body = { name: $("name").value.trim(), payload };
+        try {
+          const reply = await nc.request("jobs.create", jc.encode(body), { timeout: 3000 });
+          const { executionId } = jc.decode(reply.data);
+          setStatus(`accepted ${executionId}`, "ok");
+          watchExecution(executionId);
+        } catch (err) {
+          setStatus(`request failed: ${err.message}`, "err");
+        }
+      };
+    </script>
+  </body>
+</html>

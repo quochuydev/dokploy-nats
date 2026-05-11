@@ -3,10 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "tsx main.ts"
+    "start": "tsx main.ts",
+    "worker": "tsx worker.ts"
   },
   "dependencies": {
-    "nats": "^2.29.2"
+    "nats": "^2.29.2",
+    "uuid": "^14.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

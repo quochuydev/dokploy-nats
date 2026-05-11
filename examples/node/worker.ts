@@ -12,20 +12,27 @@ console.log("listening on jobs.create");
 
 for await (const m of sub) {
   const req = (() => {
-    try { return jc.decode(m.data); } catch { return {}; }
+    try {
+      return jc.decode(m.data);
+    } catch {
+      return {};
+    }
   })();
+  const prefix =
+    typeof req.prefix === "string" && req.prefix ? req.prefix : "default";
   const executionId = uuidv7();
-  m.respond(jc.encode({ executionId }));
-  console.log(`[worker] ${executionId} <- ${JSON.stringify(req)}`);
+  m.respond(jc.encode({ executionId, prefix }));
+  console.log(`[worker] ${prefix}/${executionId} <- ${JSON.stringify(req)}`);
 
   (async () => {
-    const steps = ["queued", "running", "running", "succeeded"] as const;
+    const steps = ["queued", "running", "succeeded"] as const;
     for (let i = 0; i < steps.length; i++) {
       await new Promise((r) => setTimeout(r, 700));
       nc.publish(
-        `executions.${executionId}.event`,
+        `executions.${prefix}.${executionId}.event`,
         jc.encode({
           executionId,
+          prefix,
           seq: i + 1,
           status: steps[i],
           message: `step ${i + 1}/${steps.length}`,

@@ -1,30 +1,58 @@
-import { connect, StringCodec, JSONCodec } from "nats";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import Fastify from "fastify";
+import cors from "@fastify/cors";
+import { connect, JSONCodec } from "nats";
 
-const url = process.env.NATS_URL ?? "nats://localhost:4222";
-const token = process.env.NATS_AUTH_TOKEN;
+const natsUrl = process.env.NATS_URL ?? "nats://localhost:4222";
+const natsToken = process.env.NATS_AUTH_TOKEN;
+const port = Number(process.env.PORT ?? 4000);
 
-const nc = await connect({ servers: url, token });
-console.log(`connected to ${nc.getServer()}`);
+const nc = await connect({ servers: natsUrl, token: natsToken });
+console.log(`fastify connected to NATS at ${nc.getServer()}`);
 
-const sc = StringCodec();
-const jc = JSONCodec();
+const jc = JSONCodec<Record<string, unknown>>();
 
-const sub = nc.subscribe("demo.>");
-(async () => {
-  for await (const m of sub) {
-    console.log(`[sub] ${m.subject}: ${sc.decode(m.data)}`);
+const app = Fastify({ logger: true });
+await app.register(cors, { origin: true });
+
+const viewsDir = join(dirname(fileURLToPath(import.meta.url)), "views");
+const indexHtml = await readFile(join(viewsDir, "index.html"), "utf8");
+const appJs = await readFile(join(viewsDir, "app.js"), "utf8");
+
+app.get("/", async (_req, reply) => {
+  reply.type("text/html");
+  return indexHtml;
+});
+
+app.get("/app.js", async (_req, reply) => {
+  reply.type("application/javascript");
+  return appJs;
+});
+
+app.post("/api", async (req, reply) => {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  try {
+    const res = await nc.request("jobs.create", jc.encode(body), {
+      timeout: 3000,
+    });
+    return jc.decode(res.data);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    reply.code(502);
+    return { error: "worker unavailable", detail: message };
   }
-})();
+});
 
-nc.publish("demo.hello", sc.encode("hello from tsx"));
-await nc.flush();
+app.get("/healthz", async () => ({ ok: true, nats: nc.getServer() }));
 
-const jsm = await nc.jetstreamManager();
-await jsm.streams.add({ name: "EVENTS", subjects: ["events.>"] }).catch(() => {});
+await app.listen({ host: "0.0.0.0", port });
 
-const js = nc.jetstream();
-const ack = await js.publish("events.user.signup", jc.encode({ id: "u1" }));
-console.log(`[js] stream=${ack.stream} seq=${ack.seq}`);
-
-await new Promise((r) => setTimeout(r, 500));
-await nc.drain();
+const shutdown = async () => {
+  await app.close();
+  await nc.drain();
+  process.exit(0);
+};
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);

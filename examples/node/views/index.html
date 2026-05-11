@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>NATS jobs — request + live table</title>
+    <style>
+      body { font: 14px/1.4 system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
+      h1 { margin-bottom: 0.25rem; }
+      .muted { color: #666; }
+      label { display: block; margin: 0.5rem 0 0.25rem; font-weight: 600; }
+      input, button, select { font: inherit; padding: 0.4rem 0.6rem; }
+      input { width: 100%; box-sizing: border-box; }
+      .row { display: flex; gap: 0.5rem; margin-top: 0.5rem; align-items: end; }
+      .row > * { flex: 1; }
+      .row button { flex: 0 0 auto; }
+      fieldset { border: 1px solid #ddd; border-radius: 6px; padding: 0.75rem 1rem 1rem; margin: 1rem 0; }
+      legend { padding: 0 0.5rem; font-weight: 600; }
+      table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+      th, td { text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid #eee; font-family: ui-monospace, monospace; font-size: 12.5px; }
+      th { background: #f7f7f7; }
+      tr.queued td.status    { color: #888; }
+      tr.running td.status   { color: #08c; }
+      tr.succeeded td.status { color: #2a7; }
+      tr.failed td.status    { color: #c33; }
+      #status { font-family: ui-monospace, monospace; font-size: 12px; padding: 0.4rem 0.6rem; border-radius: 4px; background: #f3f3f3; display: inline-block; }
+      #status.ok { background: #e6f7ec; color: #1a6b3a; }
+      #status.err { background: #fde8e8; color: #8a1f1f; }
+    </style>
+  </head>
+  <body>
+    <h1>NATS jobs</h1>
+    <p class="muted">POSTs to the Fastify <code>/api</code> route to get <code>{ executionId }</code>. Worker publishes events on <code>executions.&lt;prefix&gt;.&lt;uuid&gt;.event</code>. Default URL subscribes to <code>executions.&gt;</code> (all prefixes) and submits under <code>default</code>. Use <code>?ids=a,b</code> to subscribe to those prefixes only; submissions go under the first one.</p>
+
+    <fieldset>
+      <legend>Connection</legend>
+      <div class="row">
+        <div>
+          <label>API URL</label>
+          <input id="api" value="http://localhost:4000/api" />
+        </div>
+        <div>
+          <label>NATS WS URL</label>
+          <input id="url" value="ws://localhost:8080" />
+        </div>
+        <div>
+          <label>Auth token</label>
+          <input id="token" placeholder="optional" />
+        </div>
+        <button id="connect">Reconnect</button>
+      </div>
+      <p style="margin-top:0.75rem"><span id="status">connecting…</span></p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Submit job</legend>
+      <div class="row">
+        <div>
+          <label>Job name</label>
+          <input id="name" value="match-live" />
+        </div>
+        <div>
+          <label>Payload (JSON)</label>
+          <input id="payload" value='{"score":"1-0"}' />
+        </div>
+        <button id="submit" disabled>Submit</button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Executions</legend>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:11ch">Time</th>
+            <th style="width:10ch">Prefix</th>
+            <th>Execution ID</th>
+            <th style="width:5ch">Seq</th>
+            <th style="width:10ch">Status</th>
+            <th>Message</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </fieldset>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

@@ -109,5 +109,3 @@ Edit `nats.conf` (env vars referenced as `$VAR`) or `docker-compose.yml`, push, 
 ## References
 
 - [Node example](./examples/node) — Fastify UI + worker, request/reply, WebSocket live events, prefix-scoped subscriptions
-
-![Node example screenshot](./docs/example-node.png)

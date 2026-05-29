@@ -74,38 +74,6 @@ flowchart LR
    - Add `ports: ["4222:4222"]` to the `nats` service and open the firewall, or
    - Use the WebSocket endpoint from clients that support it.
 
-## Commands
-
-Install the NATS CLI: https://github.com/nats-io/natscli
-
-```bash
-# context for your deployed instance
-nats context save dokploy \
-  --server wss://nats-ws.<your-domain> \
-  --token "$NATS_AUTH_TOKEN" \
-  --select
-
-# basic pub/sub
-nats sub demo &
-nats pub demo "hello from dokploy"
-
-# JetStream — create stream and publish
-nats stream add events --subjects "events.*" --storage file --defaults
-nats pub events.user.signup '{"id":"u1"}'
-nats stream view events
-```
-
-## Extending
-
-All NATS settings are read from `nats.conf` and env vars. To add features:
-
-- **TLS / mTLS** — add a `tls { ... }` block to `nats.conf` and mount certs
-- **Cluster / leaf nodes** — add `cluster { ... }` or `leafnodes { ... }` blocks
-- **NKey / JWT auth** — replace the `authorization { token: ... }` block with `accounts { ... }` and operator JWT
-- **KV / Object store** — managed via `nats` CLI after deploy (`nats kv add`, `nats object add`)
-
-Edit `nats.conf` (env vars referenced as `$VAR`) or `docker-compose.yml`, push, redeploy.
-
 ## References
 
 - [Node example](./examples/node) — Fastify UI + worker, request/reply, WebSocket live events, prefix-scoped subscriptions
